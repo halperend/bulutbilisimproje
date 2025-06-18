@@ -1,0 +1,90 @@
+\section{}
+
+\subsection{Kurulum Adımları}
+\begin{lstlisting}[language=bash, caption=Kurulum ve Başlatma]
+# Sanal ortam oluştur
+python -m venv venv
+venv\Scripts\activate
+
+# Gerekli kütüphaneler
+pip install django boto3 django-environ
+
+# Projeyi başlat
+django-admin startproject mycloud .
+python manage.py runserver
+\end{lstlisting}
+Projeyi sağlıklı bir şekilde çalıştırabilmek için öncelikle sistemde bir sanal Python ortamı oluşturulmuştur. Bu ortam aktif hale getirildikten sonra, projenin ihtiyaç duyduğu Django, boto3 ve django-environ gibi gerekli kütüphaneler pip aracılığıyla yüklenmiştir. Daha sonra django-admin startproject komutu kullanılarak Django projesi oluşturulmuş ve manage.py runserver komutu ile yerel geliştirme sunucusu başarıyla başlatılmıştır. Bu adımlar sayesinde uygulama geliştirilmeye ve test edilmeye hazır hâle getirilmiştir.
+
+\subsection{.env Dosyası Örneği}
+\begin{lstlisting}[caption=.env içeriği]
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_STORAGE_BUCKET_NAME=bulutbilisim2
+AWS_S3_REGION_NAME=eu-north-1
+\end{lstlisting}
+
+Projede gizli anahtarların ve yapılandırma ayarlarının güvenli bir şekilde saklanabilmesi için .env adlı bir ortam dosyası kullanılmıştır. Bu dosya, AWS S3 servisine erişim için gereken AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_STORAGE_BUCKET_NAME ve AWS_S3_REGION_NAME gibi hassas bilgileri içerir. Uygulama, bu değerleri doğrudan kod içine yazmak yerine .env dosyasından dinamik olarak okuyarak güvenlik açıklarını azaltır ve kaynak kodun daha taşınabilir hâle gelmesini sağlar. Django içerisinde .env dosyasını okumak için django-environ kütüphanesi kullanılmıştır. Böylece geliştirici, projenin farklı ortamlarda (örneğin yerel geliştirme, test veya canlı sunucu) çalışmasını kolayca sağlar ve bu ortamlar arasında yalnızca .env dosyasını değiştirerek konfigürasyonu yönetebilir. Ayrıca .env dosyası .gitignore dosyasına eklenerek versiyon kontrol sistemine dahil edilmemesi sağlanmıştır.
+
+\section{Dosya Yükleme View Kodu}
+\begin{lstlisting}[language=Python, caption=upload_file fonksiyonu]
+@csrf_exempt
+def upload_file(request):
+    if request.method == 'POST' and request.FILES.get('file'):
+        file_obj = request.FILES['file']
+        file_name = f"{uuid.uuid4()}_{file_obj.name}"
+
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+        )
+
+        try:
+            s3.upload_fileobj(
+                file_obj,
+                settings.AWS_STORAGE_BUCKET_NAME,
+                file_name
+            )
+
+            file_url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/{file_name}"
+            return JsonResponse({'url': file_url})
+
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'error': 'No file uploaded'}, status=400)
+\end{lstlisting}
+
+Uygulamanın temel işlevlerinden biri olan dosya yükleme işlemi, Django’nun view fonksiyonu aracılığıyla gerçekleştirilmiştir. uploadfile adlı bu view, kullanıcıdan gelen HTTP POST isteğiyle birlikte gönderilen dosyayı alır ve bir UUID ile yeniden adlandırarak benzersiz bir isim oluşturur. Daha sonra boto3 kütüphanesi kullanılarak AWS S3 servisine bağlantı sağlanır ve dosya, belirtilen bucket içerisine uploadfileobj() fonksiyonu ile yüklenir. Dosya yükleme işlemi başarıyla tamamlandığında, S3 üzerindeki dosya URL’si JSON formatında istemciye döndürülür. Bu yapı sayesinde kullanıcı, yüklediği dosyaya doğrudan erişebilir. Bu yaklaşım, web arayüzü ile güvenli ve esnek bir dosya transferi sağlamaktadır.
+
+\section{HTML Yükleme Formu}
+\begin{lstlisting}[language=html, caption=upload.html]
+<form id="uploadForm" enctype="multipart/form-data">
+  <input type="file" name="file" required />
+  <button type="submit">Yükle</button>
+</form>
+
+<script>
+document.getElementById("uploadForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+
+    const response = await fetch("/upload/", {
+        method: "POST",
+        body: formData,
+    });
+
+    const data = await response.json();
+    alert(data.url || data.error);
+});
+</script>
+\end{lstlisting}
+
+Uygulamanın kullanıcı arayüzü, temel olarak bir HTML formu üzerinden dosya seçimi ve yükleme işlemlerini gerçekleştirecek şekilde tasarlanmıştır. Form içerisinde, kullanıcının yerel cihazından bir dosya seçebilmesi için bir adet file input alanı yer almaktadır. JavaScript ile desteklenen bu form, submit olayına müdahale ederek sayfa yenilenmeden arka planda (asenkron olarak) dosya yükleme işlemi gerçekleştirmektedir. fetch() fonksiyonu kullanılarak yüklenen dosya, FormData yapısı aracılığıyla Django sunucusundaki uploadfile endpoint'ine POST isteği olarak gönderilir. Sunucu yanıt olarak başarılı yükleme durumunda dosyanın S3 üzerindeki bağlantı URL’sini JSON biçiminde döndürür ve bu yanıt kullanıcıya anlık olarak gösterilir. Bu yaklaşım, kullanıcı deneyimini iyileştirir ve sunucu ile istemci arasında hızlı, kesintisiz bir iletişim sağlar.
+
+\section{Kullanılan Teknolojiler ve Kütüphaneler}
+Kullanılan Teknolojiler ve Kütüphaneler
+Bu projede Python programlama dili kullanılmış olup, sürüm olarak Python 3.11 tercih edilmiştir. Web uygulamasının geliştirilmesi için güçlü ve modüler bir yapı sunan Django 4.x framework’ü kullanılmıştır. Projenin geliştirme ortamı olarak Visual Studio Code (VS Code) tercih edilmiş, kullanıcı dostu arayüzü ve terminal entegrasyonu sayesinde proje dosyalarının yönetimi, kod yazımı ve çalıştırılması kolay bir şekilde gerçekleştirilmiştir.
+
+Dosya yükleme işlemlerinin Amazon Web Services (AWS) altyapısındaki S3 servisine entegre edilebilmesi için boto3 adlı Python kütüphanesi kullanılmıştır. Bu kütüphane sayesinde Django uygulaması, S3 üzerinde nesne oluşturma ve dosya aktarma işlemlerini gerçekleştirebilmektedir. Ayrıca uygulamanın yapılandırma bilgilerini (örneğin AWS anahtarları) güvenli bir şekilde dış dosyadan çekebilmesi amacıyla django-environ kütüphanesinden faydalanılmıştır. Tüm bu kütüphaneler, proje sanal ortamı etkinleştirildikten sonra pip komutu ile kurulmuştur.

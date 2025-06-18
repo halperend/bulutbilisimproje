@@ -1,0 +1,58 @@
+\section{}
+\section{Dosya Yükleme View Kodu}
+\begin{lstlisting}[language=Python, caption=upload_file fonksiyonu]
+@csrf_exempt
+def upload_file(request):
+    if request.method == 'POST' and request.FILES.get('file'):
+        file_obj = request.FILES['file']
+        file_name = f"{uuid.uuid4()}_{file_obj.name}"
+
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME,
+        )
+
+        try:
+            s3.upload_fileobj(
+                file_obj,
+                settings.AWS_STORAGE_BUCKET_NAME,
+                file_name
+            )
+
+            file_url = f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.{settings.AWS_S3_REGION_NAME}.amazonaws.com/{file_name}"
+            return JsonResponse({'url': file_url})
+
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'error': 'No file uploaded'}, status=400)
+\end{lstlisting}
+
+Uygulamanın temel işlevlerinden biri olan dosya yükleme işlemi, Django’nun view fonksiyonu aracılığıyla gerçekleştirilmiştir. uploadfile adlı bu view, kullanıcıdan gelen HTTP POST isteğiyle birlikte gönderilen dosyayı alır ve bir UUID ile yeniden adlandırarak benzersiz bir isim oluşturur. Daha sonra boto3 kütüphanesi kullanılarak AWS S3 servisine bağlantı sağlanır ve dosya, belirtilen bucket içerisine uploadfileobj() fonksiyonu ile yüklenir. Dosya yükleme işlemi başarıyla tamamlandığında, S3 üzerindeki dosya URL’si JSON formatında istemciye döndürülür. Bu yapı sayesinde kullanıcı, yüklediği dosyaya doğrudan erişebilir. Bu yaklaşım, web arayüzü ile güvenli ve esnek bir dosya transferi sağlamaktadır.
+
+\section{HTML Yükleme Formu}
+\begin{lstlisting}[language=html, caption=upload.html]
+<form id="uploadForm" enctype="multipart/form-data">
+  <input type="file" name="file" required />
+  <button type="submit">Yükle</button>
+</form>
+
+<script>
+document.getElementById("uploadForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+
+    const response = await fetch("/upload/", {
+        method: "POST",
+        body: formData,
+    });
+
+    const data = await response.json();
+    alert(data.url || data.error);
+});
+</script>
+\end{lstlisting}
+
+Uygulamanın kullanıcı arayüzü, temel olarak bir HTML formu üzerinden dosya seçimi ve yükleme işlemlerini gerçekleştirecek şekilde tasarlanmıştır. Form içerisinde, kullanıcının yerel cihazından bir dosya seçebilmesi için bir adet file input alanı yer almaktadır. JavaScript ile desteklenen bu form, submit olayına müdahale ederek sayfa yenilenmeden arka planda (asenkron olarak) dosya yükleme işlemi gerçekleştirmektedir. fetch() fonksiyonu kullanılarak yüklenen dosya, FormData yapısı aracılığıyla Django sunucusundaki uploadfile endpoint'ine POST isteği olarak gönderilir. Sunucu yanıt olarak başarılı yükleme durumunda dosyanın S3 üzerindeki bağlantı URL’sini JSON biçiminde döndürür ve bu yanıt kullanıcıya anlık olarak gösterilir. Bu yaklaşım, kullanıcı deneyimini iyileştirir ve sunucu ile istemci arasında hızlı, kesintisiz bir iletişim sağlar.
